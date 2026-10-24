@@ -28,5 +28,7 @@ jobs:
         run: ruff check app/ tests/
 
       - name: 单元测试
-        # 全部测试不访问网络，所以不需要装浏览器
-        run: pytest tests/ -v
+        # 全部测试不访问网络，所以不需要装浏览器。
+        # 必须 python -m pytest：把仓库根目录放进 sys.path，
+        # 裸 pytest 会让 tests 里的 `from app.xxx import` 全部失败。
+        run: python -m pytest tests/ -v
