@@ -6,7 +6,7 @@ requires-python = ">=3.10"
 license = { text = "GPL-3.0-or-later" }
 
 [project.urls]
-Source = "https://github.com/yourname/apple-stock"
+Source = "https://github.com/LNPANDY/apple-stock-server"
 
 [tool.ruff]
 line-length = 100
