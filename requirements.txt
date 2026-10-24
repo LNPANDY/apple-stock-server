@@ -1,0 +1,5 @@
+playwright>=1.48
+PyYAML>=6.0
+aiohttp>=3.9
+ruamel.yaml>=0.18
+certifi>=2023.0

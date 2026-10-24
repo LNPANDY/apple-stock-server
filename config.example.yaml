@@ -1,0 +1,153 @@
+# Apple 直营店取货补货监控 —— 配置示例
+# 复制为 config.yaml 后修改。所有字段都有默认值，最小配置只需要 region 和 pickup。
+
+# 地区：cn(中国大陆) / hk / mo / tw / jp / sg / au / my
+region: cn
+
+# 查询间隔（秒）。不允许低于 120。
+# 这个值不是越小越好：App 按出口 IP 计额度，缩短间隔只会更快被封。
+interval: 300
+
+# 间隔随机浮动比例，0.2 表示 ±20%。固定节奏本身就是机器人特征。
+jitter: 0.2
+
+# 取货范围。两种写法可以同时用。
+#
+# cities 走 location= 查询：一次请求返回该地点周边全部门店的库存。
+#   这是压降请求量最关键的一环——上海 12 家店，用它只要 1 次请求而不是 12 次。
+#   大陆站必须写「省 市」，只写城市会被拒绝。
+#
+# stores 走 store= 查询：只查指定门店，适合城市查询覆盖不到的情况，或只想盯一两家店。
+#   门店编号是 R 开头的四位/三位编号，可在 Apple 门店页 URL 上看到。
+pickup:
+  cities:
+    - 上海 上海
+    # - 广东 深圳
+    # - 北京 北京
+  stores: []
+    # - R683   # 上海环球港
+
+# 要盯的型号。零件号在 Apple 购买页 URL 上可以看到，例如
+#   https://www.apple.com.cn/shop/product/MJT74CH/A
+# name 只是通知里的显示名，可以省略。
+products:
+  - part: MJT74CH/A
+    name: iPhone 18 Pro 深空黑色 256GB
+  # - part: MG6W4CH/A
+  #   name: iPhone 17 128GB
+
+# 自动从官网购买页发现型号。适合「盯整个系列」，新型号发布当天就能覆盖，
+# 不必等本项目更新。family 留空表示该品类下所有在售机型。
+# filters 里的关键词是包含匹配，不区分大小写；留空表示不筛选。
+auto: []
+  # - category: iphone
+  #   family: iphone-18-pro
+  #   filters:
+  #     color: [黑色, 银色]
+  #     capacity: [256GB, 512GB]
+  # - category: iphone        # 不加 family：该品类全部机型
+  #   filters:
+  #     capacity: [1TB]
+
+# 通知渠道。可配多个，任一失败不影响其他。
+notify:
+  - type: console
+  # - type: bark              # iOS 推送（推荐）
+  #   url: env:BARK_URL       # https://api.day.app/你的设备Key
+  #   group: Apple            # 通知分组
+  #   level: timeSensitive    # 可穿透专注模式
+  # - type: telegram
+  #   token: env:TG_TOKEN
+  #   chat_id: env:TG_CHAT_ID
+  # - type: webhook
+  #   url: env:FEISHU_WEBHOOK
+  #   template: feishu        # feishu / dingtalk / wecom / text(默认)
+  # - type: smtp
+  #   host: smtp.example.com
+  #   port: 465
+  #   security: ssl           # ssl / starttls / none
+  #   username: me@example.com
+  #   password: env:SMTP_PASSWORD
+  #   to: me@example.com
+
+# 有货时是否周期性重复提醒（避免第一次漏看）。true 时按 repeat_interval 重复。
+repeat_when_in_stock: true
+repeat_interval: 1800
+
+# 被 Apple 拦截后的退避阶梯（秒，必须递增）。
+# 第 1 次被拦等 10 分钟，之后依次 20 / 40 / 60 / 120 分钟再试。
+# 这不是「重试越快越好」的场景：同一 IP 的连续请求会延长封禁。
+backoff_ladder: [600, 1200, 2400, 3600, 7200]
+
+# 连续被拦多少轮后推送一次「监控已失效」。
+# 监控静默失效比漏掉一次补货更糟——用户会以为一直没货。
+degraded_alert_after: 4
+
+# 静默时段：这段时间内不推送。默认关闭。
+# mode: silent = 只写日志；defer = 结束后合并补发。
+# quiet_hours: "23:00-08:00"          # 简写形式
+quiet_hours:
+  enabled: false
+  start: "23:00"
+  end: "08:00"
+  mode: silent
+
+# 查询出口代理。留空 = 直连。
+#
+# 典型用法：程序跑在 VPS 上，但希望查询从家里的宽带出去（家宽 IP 被 Apple
+# 拦截的概率远低于机房 IP）。做法是在家里那台机器上开一个 SOCKS5 服务，
+# 让 VPS 通过它查询。见 README「VPS + 家宽出口」一节。
+#
+# 支持 http:// https:// socks5:// socks4://，可带账号密码：
+#   proxy: socks5://user:pass@你家公网地址:1080
+proxy: ""
+
+# 不走代理的地址。本机回环一般不用走代理。
+proxy_bypass: "127.0.0.1,localhost"
+
+# 出口轮换（可选）。被 Apple 拦截时自动切换到下一个节点。
+#
+# 需要一个支持外部控制接口的 Clash 内核：ClashX、ClashVerge、mihomo 都可以。
+# 注意：Shadowrocket 没有这个接口，无法用这种方式轮换。
+#
+# 两种接入方式：
+#   clash_api: http://127.0.0.1:9090        # ClashX / 原版 Clash 的 TCP 端口
+#   clash_api: unix:/path/to/xxx.sock       # ClashVerge 默认只开 Unix socket
+#
+# ClashVerge 的 socket 路径在它自己的 config.yaml 里（external-controller-unix）。
+# 在 macOS 上通常是：
+#   unix:/var/folders/xx/.../T/verge-mihomo.sock
+# 用 `grep external-controller-unix` 找出来即可，不需要去改它的设置。
+#
+# clash_group 是策略组名。选一个「手动选择」类的组，不要选「自动选择」或
+# 「故障转移」——那些组自己会切换，和本程序的轮换打架。名字里有 Apple 的
+# 专用组最理想：只影响 Apple 域名，不动其他流量。
+#
+# 启用轮换后，proxy 必须指向同一个 Clash 实例的代理端口，否则切换节点不生效。
+clash_api: ""
+clash_group: ""
+clash_secret: ""
+
+# 每轮轮转出口（默认开启，推荐）。20 个节点 × 10 秒间隔时，每个节点平均
+# 200 秒才被用一次，单节点请求密度降到 1/20。
+# 关闭后只在被 Apple 拒绝时才切换节点。
+rotate_routes: true
+
+# 是否把家宽（DIRECT）也算一个出口参与轮转。
+# 需要 DIRECT 在该策略组里；不在的话请用下面的 fallback_proxy 方案。
+use_direct_route: false
+
+# 所有节点都失效时的兜底出口（可选）。
+# 配合 ClashVerge 的第二个 listener 使用，例如：
+#   fallback_proxy: http://127.0.0.1:7898   # 该端口固定 DIRECT
+fallback_proxy: ""
+
+# 推送时间戳与静默时段使用的时区。
+# 服务器时钟通常是 UTC，不设这个的话推送里的时间会差 8 小时，
+# 静默时段也会错位。面板不受影响（跟随浏览器时区）。
+timezone: Asia/Shanghai
+
+# 状态文件，用于记住上次的库存结论，重启不会重复提醒。
+state_file: data/state.json
+
+log_level: INFO

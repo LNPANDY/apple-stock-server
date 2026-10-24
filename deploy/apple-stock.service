@@ -1,0 +1,40 @@
+[Unit]
+Description=Apple 直营店取货补货监控
+Documentation=https://github.com/suversal/apple-store-inventory-monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=applemon
+Group=applemon
+WorkingDirectory=/opt/apple-stock
+Environment=PYTHONUNBUFFERED=1
+# 密钥放这里，权限 600。配置里用 env:NAME 引用。
+EnvironmentFile=-/opt/apple-stock/.env
+# 加 --web 可在服务器上开状态面板（记得用 SSH 端口转发访问）
+ExecStart=/opt/apple-stock/venv/bin/python -m app run -c /opt/apple-stock/config.yaml
+
+# 被拦后会自动退避，不需要靠重启来「救」。频繁重启会延长封禁。
+Restart=on-failure
+RestartSec=60
+
+# 1G 内存的机器上，Chrome 峰值约 400MB。给整棵进程树留足余量，
+# 同时用上限兜住异常膨胀，避免把 VPS 拖到 OOM。
+MemoryMax=800M
+MemoryHigh=650M
+TasksMax=512
+
+# 只读系统目录 + 可写的自身目录，最小权限。
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/apple-stock/data
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=apple-stock
+
+[Install]
+WantedBy=multi-user.target

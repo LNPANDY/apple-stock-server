@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apple 补货监控</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Apple 补货监控</h1>
+    <div class="row small muted"><span id="scopeLine">—</span></div>
+  </header>
+
+  <div id="notes"></div>
+
+  <section class="panel">
+    <div class="row" style="justify-content:space-between;margin-bottom:6px">
+      <h2 style="margin:0">本轮结果</h2>
+      <span class="row small muted" style="gap:8px">
+        <span id="statusBadge" class="badge">—</span>
+        <span id="countdown" class="mono">—</span>
+      </span>
+    </div>
+
+    <div class="verdict none" id="verdict">
+      <div class="grow">
+        <div class="big" id="verdictBig">等待第一轮结果…</div>
+        <div class="meta" id="verdictMeta"></div>
+      </div>
+    </div>
+
+    <div id="hits"></div>
+
+    <details id="detailWrap" style="margin-top:10px">
+      <summary id="detailSummary">查看本轮明细</summary>
+      <div id="detail" class="small muted" style="padding-top:8px"></div>
+    </details>
+  </section>
+
+  <section class="panel" id="historyPanel" style="display:none">
+    <h2>补货历史</h2>
+    <div id="history" class="small"></div>
+  </section>
+
+  <section class="panel">
+    <div class="row" style="justify-content:space-between;margin-bottom:14px">
+      <h2 style="margin:0">监控日志
+        <span class="small muted" id="logCount" style="font-weight:400;margin-left:6px"></span>
+      </h2>
+      <span class="row" style="gap:8px">
+        <span class="row" style="gap:8px" id="logTools">
+          <div class="seg" id="logFilter">
+            <button data-f="all" class="on">全部</button>
+            <button data-f="hit">有补货</button>
+            <button data-f="fail">失败</button>
+          </div>
+          <button id="logRefresh" class="chip">刷新</button>
+        </span>
+        <button id="logToggle" class="chip toggle-btn">
+          <span id="logToggleText">展开</span>
+          <span class="caret" id="logCaret">▾</span>
+        </button>
+      </span>
+    </div>
+    <div id="logs"><div class="empty">等待第一轮结果…</div></div>
+  </section>
+
+  <section class="panel">
+    <div class="row" style="justify-content:space-between;margin-bottom:14px">
+      <h2 style="margin:0">监控设置</h2>
+      <span class="row" style="gap:8px">
+        <button id="resetBtn" disabled>放弃修改</button>
+        <button id="saveBtn" class="primary" disabled>保存</button>
+      </span>
+    </div>
+
+    <div class="field">
+      <label>监控门店</label>
+      <div class="chips" id="provinceChips"></div>
+      <div class="hint" id="provinceHint"></div>
+    </div>
+
+    <div class="field" style="margin-top:18px">
+      <label>监控型号</label>
+      <div class="grid2">
+        <div class="field" style="margin:0">
+          <label class="small">机型</label>
+          <select id="familySelect"></select>
+        </div>
+        <div class="field" style="margin:0">
+          <label class="small">颜色</label>
+          <select id="colorSelect"></select>
+        </div>
+        <div class="field" style="margin:0">
+          <label class="small">容量</label>
+          <select id="capacitySelect"></select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:8px;gap:8px">
+        <button id="loadPartsBtn" class="chip">读取该机型型号</button>
+        <span class="small muted" id="partsStatus"></span>
+      </div>
+      <div class="partlist" id="partList" style="margin-top:10px"></div>
+      <div class="hint" style="margin-top:6px">
+        选「全部颜色/全部容量」时监控该机型所有组合。零件号从官网购买页实时读取。
+      </div>
+    </div>
+
+    <div style="margin-top:20px">
+      <label class="small muted" style="display:block;margin-bottom:10px">监控时间策略</label>
+
+      <div class="grid2">
+        <div class="field">
+          <label>查询间隔（秒）</label>
+          <input type="number" id="intervalInput" min="5" step="5">
+          <div class="hint" id="intervalHint"></div>
+        </div>
+        <div class="field">
+          <label>抖动范围（±%）</label>
+          <input type="number" id="jitterInput" min="0" max="90" step="5">
+          <div class="hint">让请求节奏随机化，固定周期本身是机器人特征。</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>被拦截后的退避阶梯（分钟，逗号分隔）</label>
+        <input type="text" id="backoffInput" placeholder="10,20,40,60,120">
+        <div class="hint" id="backoffHint"></div>
+      </div>
+
+      <div class="field">
+        <label>连续被拦多少轮后提醒「监控已失效」</label>
+        <input type="number" id="degradedInput" min="2" max="20" step="1">
+      </div>
+
+      <div class="field">
+        <label class="sw">
+          <input type="checkbox" id="quietToggle">
+          <span class="track"></span>
+          <span>启用静默时段</span>
+        </label>
+        <div class="row" id="quietRow" style="gap:10px;margin-top:8px">
+          <input type="time" id="quietStart" style="width:130px">
+          <span class="muted small">至</span>
+          <input type="time" id="quietEnd" style="width:130px">
+          <div class="seg" id="quietMode">
+            <button data-mode="silent">只记日志</button>
+            <button data-mode="defer">结束后补发</button>
+          </div>
+        </div>
+        <div class="hint">静默时段内不推送，避免深夜提醒变成关通知的理由。</div>
+      </div>
+
+      <div class="field">
+        <label class="sw">
+          <input type="checkbox" id="repeatToggle">
+          <span class="track"></span>
+          <span>有货时周期性重复提醒</span>
+        </label>
+        <div class="row" style="gap:10px;margin-top:8px">
+          <input type="number" id="repeatInput" min="60" step="60" style="width:130px">
+          <span class="muted small">秒重复一次（避免第一次漏看）</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="note" id="restartNote" style="display:none">
+      已保存。间隔与抖动在下一轮直接生效；通知渠道的改动需重启进程。
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="row" style="justify-content:space-between;margin-bottom:14px">
+      <h2 style="margin:0">通知渠道</h2>
+      <button id="testNotifyBtn" class="chip">发送测试推送</button>
+    </div>
+
+    <div id="channels"></div>
+
+    <div class="row" style="gap:8px;margin-top:12px">
+      <button class="chip" data-add="bark">+ Bark</button>
+      <button class="chip" data-add="telegram">+ Telegram</button>
+      <button class="chip" data-add="webhook">+ Webhook</button>
+      <button class="chip" data-add="smtp">+ 邮件</button>
+      <button class="chip" data-add="console">+ 仅日志</button>
+    </div>
+    <div class="hint" style="margin-top:8px">
+      多个渠道可同时启用，任一失败不影响其他。密钥可写 <code>env:变量名</code>
+      从 <code>.env</code> 读取，避免明文写进配置文件。
+    </div>
+  </section>
+
+  <footer>
+    面板只监听本机。远程查看请用 SSH 端口转发：
+    <code>ssh -L 8787:127.0.0.1:8787 user@host</code>
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+[project]
+name = "apple-stock"
+version = "1.0.0"
+description = "Apple 直营店补货监控，可在服务器运行"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+
+[project.urls]
+Source = "https://github.com/yourname/apple-stock"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "UP",    # pyupgrade
+    "B",     # bugbear
+    "SIM",   # simplify
+    "RUF",   # ruff-specific
+]
+ignore = [
+    "E501",    # 行宽由 formatter 处理
+    "SIM117",  # aiohttp 的嵌套 with 更清楚
+    "RUF001",  # 中文标点在注释里是正常的
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["C408"]   # 测试里 dict() 有时更好读
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

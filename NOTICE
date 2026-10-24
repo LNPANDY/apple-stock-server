@@ -1,0 +1,46 @@
+# NOTICE
+
+## 衍生关系
+
+本项目的核心思路、Apple 接口调用方式、以及大量抗风控经验来自：
+
+**apple-store-inventory-monitor**（果到雷达）
+<https://github.com/suversal/apple-store-inventory-monitor>
+Copyright (C) suversal and contributors
+License: GPL-3.0-or-later
+
+本项目是它的衍生作品，按 GPL-3.0-or-later 发布。
+
+## 主要改动
+
+| 方面 | 原项目 | 本项目 |
+| --- | --- | --- |
+| 形态 | Rust + Tauri 桌面应用 | Python + 网页面板 |
+| 运行环境 | 需要桌面（macOS/Windows/Linux） | 可在无桌面的服务器运行 |
+| 界面 | React 前端 + 系统托盘 | 单页面，无构建步骤 |
+| 自动结账 | 支持（中国大陆） | **移除** |
+| 商品目录 | 内嵌快照 + 在线刷新 | 在线发现 + 手写零件号 |
+| 出口轮换 | 通过 Clash API | 同左，另支持 Unix socket（ClashVerge） |
+| 状态持久化 | 应用配置目录 | 单个 JSON 文件 |
+
+## 保留的设计
+
+以下做法直接沿用原项目的实测结论，改动会破坏正确性或触发风控：
+
+- 用真实 Chromium 会话在页面内发 fetch，而不是裸 HTTP
+- 用 `location=` 批量查询替代逐店查询
+- 单次请求最多 20 个零件号（第 21 个会被 Apple 静默丢弃）
+- 失败绝不降级为「无货」
+- 被拦后按 5→10→20→30 分钟冷却节点
+- 切换节点后断开经过该策略组的旧连接
+
+## 第三方组件
+
+- [Playwright](https://playwright.dev/) — Apache-2.0
+- [aiohttp](https://docs.aiohttp.org/) — Apache-2.0
+- [PyYAML](https://pyyaml.org/) — MIT
+- [ruamel.yaml](https://yaml.dev/doc/ruamel.yaml/) — MIT
+- [certifi](https://certifiio.readthedocs.io/) — MPL-2.0
+- [mihomo](https://github.com/MetaCubeX/mihomo) — GPL-3.0（仅作为外部程序调用，不包含在本仓库中）
+
+本项目不包含任何 Apple 的商标、素材或私有代码。
