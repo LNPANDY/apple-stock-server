@@ -56,10 +56,15 @@ sudo systemctl enable --now apple-stock
 本机执行，自动完成上面全部步骤 + mihomo + systemd + 防火墙：
 
 ```bash
-python3 deploy_to_vps.py 你的VPS_IP \
-    --clash-yaml ~/Downloads/机场配置.yaml \   # 可选，启用出口轮换
-    --bark-url https://api.day.app/你的Key       # 可选
+python3 deploy_to_vps.py 你的VPS_IP
 ```
+
+在终端里运行时会**逐步询问**：要不要启用多节点轮换（需 Clash 订阅，
+确认后输入订阅链接或本地配置文件路径）、要不要配 Bark 推送。
+
+给订阅**链接**时 mihomo 会每 12 小时自动更新节点（推荐，订阅过期换新
+链接后无需重新部署）；给本地 YAML 文件则节点固定，换订阅需重跑部署。
+全参数模式见 `python3 deploy_to_vps.py --help`。
 
 要求本机 `~/.ssh/vps_deploy_key` 能免密登录该 VPS。重复部署安全：
 已有配置（含面板令牌）会被保留。结束时打印面板地址和卸载命令。

@@ -7,11 +7,16 @@ mihomo 都可以。**Shadowrocket 没有这个接口**，用不了。
 
 ## VPS 部署
 
-最省事的是在**本机**跑仓库根目录的一键脚本（含 mihomo + systemd + 防火墙）：
+最省事的是在**本机**跑仓库根目录的一键脚本（含 mihomo + systemd + 防火墙），
+会交互询问是否启用轮换：
 
 ```bash
-python3 deploy_to_vps.py 你的VPS_IP --clash-yaml /path/to/clash-config.yaml
+python3 deploy_to_vps.py 你的VPS_IP
 ```
+
+订阅给**链接**时，mihomo 用原生 proxy-providers 每 12 小时自动拉取最新
+节点，配合监控程序每 10 分钟刷新节点列表，订阅过期/机场换服务器都无需
+重新部署。给本地文件则节点在安装时写死。
 
 只想在**服务器上**装 mihomo 的话，用单独的脚本：
 

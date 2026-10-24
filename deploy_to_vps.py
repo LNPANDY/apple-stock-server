@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import argparse
 import secrets
+import shlex
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -75,6 +77,41 @@ def wait_done(client: paramiko.SSHClient, log: str, timeout: int) -> bool:
     return False
 
 
+def ask_interactive(args) -> None:
+    """终端里运行时，把没给的关键选项问一遍。
+
+    多节点轮换是抗风控最有效的手段，但需要 Clash 订阅——大部分机场
+    在后台提供订阅链接。明确问一句，而不是要求用户记住参数名。
+    """
+
+    if not sys.stdin.isatty():
+        return
+
+    if not args.clash_yaml:
+        print()
+        print("多节点轮换查询：被 Apple 拦截时自动切换节点，")
+        print("是抗风控最有效的手段（33 个节点 × 10 秒间隔时，每个节点")
+        print("平均 5 分钟才被用一次）。需要一个 Clash 订阅。")
+        answer = input("启用？[Y/n] ").strip().lower()
+        if answer in ("", "y", "yes"):
+            source = input(
+                "订阅链接（http(s)://，机场后台可查；mihomo 每 12 小时自动更新）\n"
+                "或本地 Clash 配置文件路径: "
+            ).strip()
+            if source:
+                args.clash_yaml = source
+            else:
+                print("未提供订阅，本次跳过（监控走单出口直连，后续可重新部署启用）")
+
+    if not args.bark_url:
+        print()
+        answer = input("配置 Bark 推送（iPhone）？[Y/n] ").strip().lower()
+        if answer in ("", "y", "yes"):
+            url = input("Bark 地址（Bark App 首页可见，形如 https://api.day.app/xxx）: ").strip()
+            if url:
+                args.bark_url = url
+
+
 def build_config(args, existing: dict | None) -> dict:
     """生成监控配置。已存在的配置只补缺，不覆盖——重复部署时保住
     用户改过的字段和面板令牌。"""
@@ -122,6 +159,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8788, help="面板端口")
     parser.add_argument("--interval", type=int, default=300, help="查询间隔秒")
     args = parser.parse_args()
+    ask_interactive(args)
 
     print(f"==> 连接 {args.host}", flush=True)
     client = connect(args.host)
@@ -136,9 +174,10 @@ def main() -> int:
          "-C", str(PROJECT), "."],
         check=True,
     )
+    is_url = bool(args.clash_yaml) and args.clash_yaml.startswith(("http://", "https://"))
     sftp = client.open_sftp()
     sftp.put(str(tar), "/tmp/app.tar.gz")
-    if args.clash_yaml:
+    if args.clash_yaml and not is_url:
         sftp.put(args.clash_yaml, "/tmp/clash.yaml")
         print(f"    订阅配置已上传（{Path(args.clash_yaml).name}）", flush=True)
     sftp.close()
@@ -174,8 +213,11 @@ def main() -> int:
 
     if args.clash_yaml:
         print("==> mihomo", flush=True)
+        # URL 直传给脚本（mihomo 用 proxy-providers 自动更新）；
+        # 本地文件走已上传的 /tmp/clash.yaml
+        source = args.clash_yaml if is_url else "/tmp/clash.yaml"
         log = "/tmp/step_mihomo.log"
-        run_bg(client, f"cd {REMOTE_DIR} && bash deploy/setup-mihomo.sh /tmp/clash.yaml", log)
+        run_bg(client, f"cd {REMOTE_DIR} && bash deploy/setup-mihomo.sh {shlex.quote(source)}", log)
         if not wait_done(client, log, 900):
             print(f"    !! mihomo 超时，查看 {log}", flush=True)
             return 1

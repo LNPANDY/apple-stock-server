@@ -59,13 +59,18 @@ fi
 
 # ---- 3. 拉订阅并生成配置 ----
 echo "==> 读取配置来源"
-if [[ -f "$SOURCE" ]]; then
-  cp "$SOURCE" /tmp/sub.yaml || die "无法读取 $SOURCE"
-  echo "   使用本地文件：$SOURCE"
-else
+SOURCE_MODE=file
+if [[ "$SOURCE" == http://* || "$SOURCE" == https://* ]]; then
+  SOURCE_MODE=url
+  # URL 也要下载一次做格式校验；真正给 mihomo 的还是 URL 本身
+  # （proxy-providers 自动更新），这里只验证它可用。
   curl -L --max-time 60 -o /tmp/sub.yaml "$SOURCE" || die "订阅下载失败"
   [[ -s /tmp/sub.yaml ]] || die "订阅内容为空"
-  echo "   使用订阅链接"
+  echo "   使用订阅链接（mihomo 将每 12 小时自动更新）"
+else
+  [[ -f "$SOURCE" ]] || die "文件不存在：$SOURCE"
+  cp "$SOURCE" /tmp/sub.yaml || die "无法读取 $SOURCE"
+  echo "   使用本地文件：$SOURCE（注意：文件不会自动更新，订阅过期需重新提供）"
 fi
 
 # 订阅可能返回 base64 的节点列表（v2ray 格式）而不是 Clash YAML。
@@ -105,14 +110,78 @@ try:
 except ImportError:
     sys.exit("需要 PyYAML：pip3 install pyyaml 或 apt install -y python3-yaml")
 
-out_path, api_port, proxy_port, direct_port = (
-    sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
+out_path, api_port, proxy_port, direct_port, source_mode, source = (
+    sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]),
+    sys.argv[5], sys.argv[6],
 )
 with open("/tmp/sub.yaml", encoding="utf-8", errors="ignore") as fh:
     sub = yaml.safe_load(fh)
 
 if not isinstance(sub, dict) or not sub.get("proxies"):
     sys.exit("订阅里没有 proxies 段，确认这是 Clash 格式的订阅")
+
+# ---- URL 模式：用 mihomo 原生 proxy-providers，让它自己定期拉订阅 ----
+# 这样订阅过期/机场换服务器时无需重新部署；我们的程序每 10 分钟刷新
+# 节点列表，新节点自动进入轮转池。
+# 机场的「剩余流量/套餐到期」假节点无法在这一层剔除（内容由 mihomo 拉取），
+# 由监控程序按节点名过滤（routes.py 的 INFO_NODE_KEYWORDS）。
+if source_mode == "url":
+    provider_name = "monitor-sub"
+    apple_group = "AppleMonitor"
+    config = {
+        "mixed-port": 7897,
+        "external-controller": f"127.0.0.1:{api_port}",
+        "allow-lan": False,
+        "mode": "rule",
+        "log-level": "warning",
+        "find-process-mode": "off",
+        # 健康检查用 Apple 域名：部分机场屏蔽 gstatic 这类探测域名，
+        # 用它会把所有节点误判为不可用。
+        "proxy-providers": {
+            provider_name: {
+                "type": "http",
+                "url": source,
+                "interval": 43200,          # 12 小时自动更新订阅
+                "path": "./providers/monitor-sub.yaml",
+                "health-check": {
+                    "enable": True,
+                    "url": "https://www.apple.com.cn/",
+                    "interval": 600,
+                },
+            }
+        },
+        "proxy-groups": [
+            {
+                "name": apple_group,
+                "type": "select",
+                "use": [provider_name],
+                "proxies": ["DIRECT"],      # 兜底：全部节点失效时直连
+            }
+        ],
+        "rules": [f"MATCH,{apple_group}"],
+        "listeners": [
+            {
+                "name": "apple-monitor",
+                "type": "mixed",
+                "port": proxy_port,
+                "listen": "127.0.0.1",
+                "proxy": apple_group,
+            },
+            {
+                "name": "apple-monitor-direct",
+                "type": "mixed",
+                "port": direct_port,
+                "listen": "127.0.0.1",
+                "proxy": "DIRECT",
+            },
+        ],
+    }
+    import os
+    os.makedirs(f"{out_path.rsplit('/', 1)[0]}/providers", exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(config, fh, allow_unicode=True, sort_keys=False, width=4096)
+    print("   已生成 proxy-providers 配置（12 小时自动更新订阅）", file=sys.stderr)
+    sys.exit(0)
 
 # 订阅里的端口、控制接口、DNS、TUN 都是给桌面端用的，这里全部覆盖。
 for key in (
