@@ -101,8 +101,16 @@ if [[ $check_status -ne 0 ]]; then
   die "配置格式不对（见上面的提示）。"
 fi
 
+# 生成前留一份：校验失败时能退回上一份可用配置，不留“配置写坏、服务起不来”的中间状态
+CONFIG_PREV=""
+if [[ -f "$MIHOMO_DIR/config.yaml" ]]; then
+  CONFIG_PREV="$MIHOMO_DIR/.config.yaml.prev"
+  cp "$MIHOMO_DIR/config.yaml" "$CONFIG_PREV"
+fi
+
 echo "==> 生成配置"
-python3 - "$MIHOMO_DIR/config.yaml" "$API_PORT" "$PROXY_PORT" "$DIRECT_PORT" <<'PYEOF'
+python3 - "$MIHOMO_DIR/config.yaml" "$API_PORT" "$PROXY_PORT" "$DIRECT_PORT" \
+         "$SOURCE_MODE" "$SOURCE" <<'PYEOF'
 import sys
 
 try:
@@ -119,6 +127,27 @@ with open("/tmp/sub.yaml", encoding="utf-8", errors="ignore") as fh:
 
 if not isinstance(sub, dict) or not sub.get("proxies"):
     sys.exit("订阅里没有 proxies 段，确认这是 Clash 格式的订阅")
+
+
+# REALITY 的 short-id 是 8 位十六进制串，有些组合（如 001161e9、8e208079）
+# 在 YAML 里长得像科学计数法。PyYAML 解析时按 YAML 1.1 要求指数带正负号，
+# 于是认为它只是普通字符串，dump 时**不加引号**；但 mihomo 用的 go-yaml
+# 按 YAML 1.2 接受无符号指数，读成浮点数 1.61e11，随即报
+# "invalid REALITY short ID" 拒绝启动。这里强制加双引号，让两边都读成字符串。
+class QuotedStr(str):
+    pass
+
+
+def _represent_quoted(dumper, data):
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='"')
+
+
+yaml.SafeDumper.add_representer(QuotedStr, _represent_quoted)
+
+for _proxy in sub.get("proxies") or []:
+    _opts = _proxy.get("reality-opts")
+    if isinstance(_opts, dict) and _opts.get("short-id") is not None:
+        _opts["short-id"] = QuotedStr(str(_opts["short-id"]))
 
 # ---- URL 模式：用 mihomo 原生 proxy-providers，让它自己定期拉订阅 ----
 # 这样订阅过期/机场换服务器时无需重新部署；我们的程序每 10 分钟刷新
@@ -267,15 +296,16 @@ if removed_fake:
 
 if apple_group is None:
     apple_group = "AppleMonitor"
+    real_nodes = [p for p in all_proxies if not is_fake(p)]
     sub.setdefault("proxy-groups", []).insert(
         0,
         {
             "name": apple_group,
             "type": "select",
-            "proxies": [p for p in all_proxies if not is_fake(p)] + ["DIRECT"],
+            "proxies": real_nodes + ["DIRECT"],
         },
     )
-    print(f"   订阅里没有合适的扁平组，已新建 {apple_group}（{len(all_proxies)} 个节点 + DIRECT）", file=sys.stderr)
+    print(f"   订阅里没有合适的扁平组，已新建 {apple_group}（{len(real_nodes)} 个节点 + DIRECT）", file=sys.stderr)
 else:
     print(f"   使用策略组：{apple_group}", file=sys.stderr)
 
@@ -306,6 +336,24 @@ with open(out_path, "w", encoding="utf-8") as fh:
 print(f"   配置已写入 {out_path}", file=sys.stderr)
 PYEOF
 
+# 让 mihomo 自己校验一遍再交给 systemd。这一步能拦住只在 go-yaml 下才暴露的
+# 类型问题（例如 REALITY short-id 被读成浮点数），比等服务崩了再去翻日志快。
+# 只在文件模式校验：URL 模式下 proxy-providers 由 mihomo 自己拉取，
+# -t 会触发一次网络请求，偶发失败不该阻断部署。
+if [[ "$SOURCE_MODE" == file ]]; then
+  echo "==> 校验配置"
+  if ! timeout 60 "$MIHOMO_DIR/mihomo" -t -d "$MIHOMO_DIR" >/tmp/mihomo-test.log 2>&1; then
+    echo "!! 生成的配置无法通过 mihomo 校验：" >&2
+    grep -iE "error|fatal|invalid" /tmp/mihomo-test.log | tail -5 >&2 || true
+    if [[ -n "$CONFIG_PREV" ]]; then
+      cp "$CONFIG_PREV" "$MIHOMO_DIR/config.yaml"
+      die "已回滚到上一份配置，正在运行的服务未受影响"
+    fi
+    die "配置文件不合法，已中止（此前没有旧配置可回滚）"
+  fi
+  echo "   配置合法"
+fi
+
 # ---- 4. 建用户 + systemd ----
 id -u "$MIHOMO_USER" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "$MIHOMO_USER"
 chown -R "$MIHOMO_USER:$MIHOMO_USER" "$MIHOMO_DIR"
@@ -329,7 +377,10 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now mihomo
+systemctl enable mihomo
+# 重跑本脚本时必须 restart：enable --now 对已经在跑的服务不会重载配置，
+# 会让人以为「改了订阅却没生效」。
+systemctl restart mihomo
 sleep 3
 
 # ---- 5. 验证 ----
